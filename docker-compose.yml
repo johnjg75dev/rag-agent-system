@@ -3,6 +3,22 @@ version: "3.8"
 # Only the rag-api service exposes port 8000, serving both the FastAPI backend and the built React frontend
 
 services:
+  cloudflared:
+    container_name: cloudflare-tunnel
+    image: 'cloudflare/cloudflared:latest'
+    restart: unless-stopped
+    network_mode: host
+    command: 'tunnel --no-autoupdate run'
+    environment:
+      - 'TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}'
+    healthcheck:
+      test:
+        - CMD
+        - cloudflared
+        - '--version'
+      interval: 5s
+      timeout: 20s
+      retries: 10
   # PostgreSQL with pgvector
   postgres:
     image: pgvector/pgvector:pg17
