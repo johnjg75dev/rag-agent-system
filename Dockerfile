@@ -18,9 +18,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Build frontend
-# Copy only package files first for better layer caching
-COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN cd frontend && npm ci
+# Copy only package.json first (lock file removed for simple builds)
+COPY frontend/package.json ./frontend/
+RUN cd frontend && npm install
 
 # Copy frontend source and build
 COPY frontend/ ./frontend/

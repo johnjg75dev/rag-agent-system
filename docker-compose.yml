@@ -39,7 +39,7 @@ services:
     container_name: rag-api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8855:8000"
     environment:
       - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
       - REDIS_URL=redis://redis:6379/0
