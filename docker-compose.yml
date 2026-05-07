@@ -1,14 +1,17 @@
+version: "3.8"
+# Used by Coolify Docker Compose deployment
+# Only the rag-api service exposes port 8000, serving both the FastAPI backend and the built React frontend
+
 services:
   # PostgreSQL with pgvector
   postgres:
     image: pgvector/pgvector:pg17
     container_name: rag-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ragdb
       POSTGRES_USER: user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +24,7 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: rag-redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,10 +33,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # RAG Agent System API + Frontend
+  # RAG Agent System API + Frontend (Public-facing service)
   rag-api:
     build: .
     container_name: rag-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -42,20 +45,22 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ORIGINS=${ORIGINS:-*}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./models:/app/models
-      - ./uploads:/app/uploads
+      - models_data:/app/models
+      - uploads_data:/app/uploads
 
-  # Celery Worker
+  # Celery Worker (no public port)
   rag-worker:
     build: .
     container_name: rag-worker
+    restart: unless-stopped
     command: celery -A backend.workers.celery_app worker --loglevel=info
     environment:
       - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
@@ -67,9 +72,11 @@ services:
       - postgres
       - redis
     volumes:
-      - ./models:/app/models
-      - ./uploads:/app/uploads
+      - models_data:/app/models
+      - uploads_data:/app/uploads
 
 volumes:
   postgres_data:
   redis_data:
+  models_data:
+  uploads_data:
