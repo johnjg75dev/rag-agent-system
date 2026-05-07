@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS backend
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -18,11 +18,16 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Build frontend
+# Copy only package files first for better layer caching
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN cd frontend && npm ci
 
+# Copy frontend source and build
 COPY frontend/ ./frontend/
 RUN cd frontend && npm run build
+
+# Verify the dist folder was created (fails fast if build breaks)
+RUN test -d /app/frontend/dist && echo "Frontend dist built successfully" || (echo "ERROR: frontend/dist missing" && exit 1)
 
 # Copy backend application code
 COPY backend/ ./backend/
@@ -37,7 +42,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Run the application — serves both API and built frontend static files
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3", "-m", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
