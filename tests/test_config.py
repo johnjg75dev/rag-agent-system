@@ -30,7 +30,7 @@ class TestConfig:
         assert s.postgres_url == "postgresql://user:password@localhost:5432/ragdb"
         assert s.redis_url == "redis://localhost:6379/0"
         assert s.chroma_host == "localhost"
-        assert s.chroma_port == 8000
+        assert s.chroma_port == 8855
         assert s.celery_broker_url == "redis://localhost:6379/0"
         assert s.celery_result_backend == "redis://localhost:6379/0"
         assert s.celery_worker_concurrency == 1

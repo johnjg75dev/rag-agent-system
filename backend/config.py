@@ -18,7 +18,7 @@ class Settings:
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
     chroma_host: str = os.getenv("CHROMA_HOST", "localhost")
-    chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))
+    chroma_port: int = int(os.getenv("CHROMA_PORT", "8855"))
 
     celery_broker_url: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     celery_result_backend: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
@@ -36,6 +36,8 @@ class Settings:
 
     origins: list = os.getenv("ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     secret_key: str = os.getenv("SECRET_KEY", "dev-secret-key")
+    admin_username: str = os.getenv("ADMIN_USERNAME", "ragadmin")
+    admin_password: str = os.getenv("ADMIN_PASSWORD", "ragpassword")
 
     chroma_path: str = os.getenv("CHROMA_PATH", "chroma_db")
     models_dir: str = os.getenv("MODELS_DIR", "./models")

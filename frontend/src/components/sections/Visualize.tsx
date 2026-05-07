@@ -6,6 +6,10 @@ interface PlotPoint {
   x: number;
   y: number;
   label: string;
+  id?: string;
+  filename?: string;
+  chunk_index?: number;
+  score?: number;
 }
 
 interface VisStats {
@@ -47,6 +51,15 @@ export default function Visualize() {
   useEffect(() => {
     handleVisualize();
   }, []);
+
+  // Enhanced plot data with full text and metadata
+  const hoverText = plotData.map((p) => {
+    const parts = [];
+    if (p.filename) parts.push(`File: ${p.filename}`);
+    if (p.chunk_index != null) parts.push(`Chunk: ${p.chunk_index}`);
+    parts.push(`<br>${p.label}`);
+    return parts.join('<br>');
+  });
 
   return (
     <div>
@@ -149,16 +162,23 @@ export default function Visualize() {
               {
                 x: plotData.map((p) => p.x),
                 y: plotData.map((p) => p.y),
-                text: plotData.map((p) => p.label),
+                text: hoverText,
+                hovertext: plotData.map((p) => p.label),
                 type: 'scatter',
                 mode: 'markers',
                 marker: {
-                  size: 7,
+                  size: 9,
                   color: plotData.map((_, i) => i),
                   colorscale: 'Viridis',
                   line: { width: 0.5, color: '#fff' },
                 },
-                hovertemplate: '%{text}<extra></extra>',
+                hoverinfo: 'text',
+                hoverlabel: {
+                  bgcolor: '#1e293b',
+                  font: { color: '#f1f5f9', size: 12 },
+                  bordercolor: '#334155',
+                  align: 'left' as const,
+                },
               },
             ]}
             layout={{
@@ -168,7 +188,18 @@ export default function Visualize() {
               plot_bgcolor: '#f9fafb',
               xaxis: { showgrid: false, zeroline: false, showticklabels: false },
               yaxis: { showgrid: false, zeroline: false, showticklabels: false },
-              coloraxis: { showscale: false },
+              hovermode: 'closest' as const,
+            }}
+            onClick={(event: any) => {
+              const idx = event.points?.[0]?.pointIndex;
+              if (idx != null && idx < plotData.length) {
+                alert(
+                  `Node ${idx + 1}\n\n` +
+                  `Content: ${plotData[idx].label}\n` +
+                  (plotData[idx].filename ? `File: ${plotData[idx].filename}\n` : '') +
+                  (plotData[idx].chunk_index != null ? `Chunk: ${plotData[idx].chunk_index}\n` : '')
+                );
+              }
             }}
             useResizeHandler
             style={{ width: '100%', height: '520px' }}

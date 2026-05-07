@@ -3,7 +3,7 @@ import axios from 'axios';
 import Plot from 'react-plotly.js';
 
 // --- API client ---
-const api = axios.create({ baseURL: 'http://localhost:8000' });
+const api = axios.create({ baseURL: 'http://localhost:8855' });
 
 // --- Components ---
 

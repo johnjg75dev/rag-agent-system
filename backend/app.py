@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import uuid
 import os
 
@@ -18,6 +19,8 @@ from backend.models import (
 )
 from backend.database import get_db, db_manager, SessionLocal, DocumentRecord, VectorRecord
 from backend.models_manager import model_manager
+from backend.document_parser import parse_file, is_image_file
+from backend.auth import verify_credentials, create_session_cookie
 
 app = FastAPI(title="RAG Agent System API", version="1.0.0")
 
@@ -28,6 +31,58 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Simple session store
+_sessions: Dict[str, bool] = {}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Allow CORS preflight OPTIONS requests to pass through
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    public_paths = {"/login", "/health", "/assets"}
+    path = request.url.path
+
+    # Allow static files and login
+    if path in public_paths or path.startswith("/assets"):
+        return await call_next(request)
+
+    # Check for frontend static files (SPA fallback handled by serve_spa)
+    _frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if _frontend_dist.is_dir() and not path.startswith(("/health", "/dbs", "/upload", "/documents", "/query", "/settings", "/stats", "/visualize", "/login", "/logout")):
+        return await call_next(request)
+
+    # Check auth cookie
+    session_cookie = request.cookies.get("rag_session")
+    if not session_cookie or session_cookie not in _sessions:
+        if request.method == "GET" and (path.startswith("/dbs") or path.startswith("/documents") or path.startswith("/settings") or path.startswith("/stats") or path.startswith("/health")):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+
+    return await call_next(request)
+
+
+@app.post("/login")
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    if verify_credentials(username, password):
+        token = create_session_cookie()
+        _sessions[token] = True
+        response = JSONResponse({"status": "ok", "message": "Logged in"})
+        response.set_cookie(key="rag_session", value=token, httponly=True, max_age=86400)
+        return response
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/logout")
+def logout(request: Request):
+    token = request.cookies.get("rag_session")
+    if token and token in _sessions:
+        del _sessions[token]
+    response = JSONResponse({"status": "ok"})
+    response.delete_cookie("rag_session")
+    return response
 
 
 def get_db_session():
@@ -90,52 +145,78 @@ def upload_document(
     chunk_overlap: int = Form(None),
     db: Session = Depends(get_db_session),
 ):
-    content = file.file.read().decode("utf-8")
+    # Read file bytes
+    file_bytes = file.file.read()
     doc_id = str(uuid.uuid4())
 
     cs = chunk_size if chunk_size else settings.get_default_chunk_size()
     co = chunk_overlap if chunk_overlap else settings.get_default_chunk_overlap()
+
+    # Detect if image
+    is_image = is_image_file(file.filename)
+    content = None
+    if not is_image:
+        parsed = parse_file(file_bytes, file.filename)
+        if parsed["type"] == "error":
+            raise HTTPException(status_code=400, detail=f"Failed to parse file: {parsed['content']}")
+        content = parsed["content"]
 
     record = DocumentRecord(
         id=doc_id,
         filename=file.filename,
         db_name=db_name,
         status="pending",
-        metadata_json={"chunk_size": cs, "chunk_overlap": co},
+        metadata_json={"chunk_size": cs, "chunk_overlap": co, "is_image": is_image},
     )
     db.add(record)
     db.commit()
 
-    try:
-        from backend.workers import process_document as celery_process_document
-        celery_process_document.delay(doc_id, file.filename, content, db_name, cs, co)
-    except Exception:
+    if is_image:
+        # For images, process with vision model
         try:
-            from backend.workers import chunk_text
-            chunks = chunk_text(content, cs, co)
-            embeddings = model_manager.embed(chunks)
-            ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-            metadatas = [
-                {"doc_id": doc_id, "filename": file.filename, "chunk_index": i}
-                for i in range(len(chunks))
-            ]
-            db_manager.add_to_collection(
-                db_name, ids=ids, documents=chunks,
-                metadatas=metadatas, embeddings=embeddings,
-            )
-            record = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
-            if record:
-                record.status = "completed"
-            db.commit()
-        except Exception as proc_err:
+            from backend.workers import process_image_document
+            process_image_document.delay(doc_id, file.filename, file_bytes, db_name)
+        except Exception:
+            # Fallback: mark as failed
             record = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
             if record:
                 record.status = "failed"
                 meta = record.metadata_json or {}
-                meta["error"] = str(proc_err)
+                meta["error"] = "Vision model processing not available"
                 record.metadata_json = meta
             db.commit()
-            raise HTTPException(status_code=500, detail=str(proc_err))
+    else:
+        # Text document processing
+        try:
+            from backend.workers import process_document as celery_process_document
+            celery_process_document.delay(doc_id, file.filename, content, db_name, cs, co)
+        except Exception:
+            try:
+                from backend.workers import chunk_text
+                chunks = chunk_text(content, cs, co)
+                embeddings = model_manager.embed(chunks)
+                ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+                metadatas = [
+                    {"doc_id": doc_id, "filename": file.filename, "chunk_index": i}
+                    for i in range(len(chunks))
+                ]
+                db_manager.add_to_collection(
+                    db_name, ids=ids, documents=chunks,
+                    metadatas=metadatas, embeddings=embeddings,
+                )
+                record = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
+                if record:
+                    record.status = "completed"
+                db.commit()
+            except Exception as proc_err:
+                record = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
+                if record:
+                    record.status = "failed"
+                    meta = record.metadata_json or {}
+                    meta["error"] = str(proc_err)
+                    record.metadata_json = meta
+                db.commit()
+                raise HTTPException(status_code=500, detail=str(proc_err))
 
     return {"document_id": doc_id, "status": "pending", "filename": file.filename}
 
@@ -317,7 +398,9 @@ def visualize(data: VisualizationRequest):
             {
                 "x": float(p[0]),
                 "y": float(p[1]),
-                "label": records_with_emb[i].content[:50] + "...",
+                "label": records_with_emb[i].content[:200],
+                "filename": records_with_emb[i].metadata_json.get("filename", "") if records_with_emb[i].metadata_json else "",
+                "chunk_index": records_with_emb[i].metadata_json.get("chunk_index") if records_with_emb[i].metadata_json else None,
             }
             for i, p in enumerate(points)
         ]

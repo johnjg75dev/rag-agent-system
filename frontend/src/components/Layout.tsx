@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DatabasesTab, UploadTab, QueryTab, DashboardTab, SettingsTab, VisualizeTab } from './sections';
+import GlobalProgressPanel from './GlobalProgressPanel';
 
 type TabKey = 'dashboard' | 'upload' | 'query' | 'databases' | 'visualize' | 'settings';
 
@@ -9,17 +10,30 @@ interface Tab {
   icon: string;
 }
 
+interface LayoutProps {
+  onLogout: () => void;
+}
+
 const tabs: Tab[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: '◫' },
-  { key: 'upload', label: 'Upload', icon: '⬆' },
-  { key: 'query', label: 'Query', icon: '⌕' },
-  { key: 'databases', label: 'Databases', icon: '🗄' },
-  { key: 'visualize', label: 'Visualize', icon: '◉' },
-  { key: 'settings', label: 'Settings', icon: '⚙' },
+  { key: 'dashboard', label: 'Dashboard', icon: '\u25EB' },
+  { key: 'upload', label: 'Upload', icon: '\u2B06' },
+  { key: 'query', label: 'Query', icon: '\u2315' },
+  { key: 'databases', label: 'Databases', icon: '\uD83D\uDDC4' },
+  { key: 'visualize', label: 'Visualize', icon: '\u25C9' },
+  { key: 'settings', label: 'Settings', icon: '\u2699' },
 ];
 
-export default function Layout() {
+export default function Layout({ onLogout }: LayoutProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await fetch('/logout', { method: 'POST', credentials: 'include' });
+    } catch {}
+    onLogout();
+  };
 
   const renderTab = () => {
     switch (activeTab) {
@@ -55,8 +69,15 @@ export default function Layout() {
             </button>
           ))}
         </nav>
-        <div className="p-4 border-t border-primary-800 text-xs text-primary-400">
-          v1.0.0
+        <div className="p-4 border-t border-primary-800 space-y-2">
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full text-left px-3 py-2 text-xs text-primary-300 hover:bg-primary-900 hover:text-white rounded transition-colors"
+          >
+            {loggingOut ? 'Signing out...' : 'Sign Out'}
+          </button>
+          <p className="text-xs text-primary-400">v1.0.0</p>
         </div>
       </aside>
       <main className="flex-1 overflow-auto">
@@ -64,6 +85,7 @@ export default function Layout() {
           {renderTab()}
         </div>
       </main>
+      <GlobalProgressPanel />
     </div>
   );
 }

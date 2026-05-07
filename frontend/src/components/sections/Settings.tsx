@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../../api';
 
 interface EmbedModelConfig {
@@ -22,6 +22,106 @@ interface SettingsState {
   chunk_size: number;
   chunk_overlap: number;
   top_k: number;
+}
+
+interface HFModel {
+  id: string;
+  pipeline_tag?: string;
+  downloads?: number;
+}
+
+function HFModelAutocomplete({
+  value,
+  onChange,
+  placeholder,
+  filterTags,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  filterTags?: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<HFModel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchSuggestions = useCallback(async (q: string) => {
+    if (q.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const tagsParam = filterTags?.length ? `&pipeline_tag=${filterTags.join(',')}` : '';
+      const url = `https://huggingface.co/api/models?search=${encodeURIComponent(q)}${tagsParam}&sort=downloads&direction=-1&limit=10`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setSuggestions(Array.isArray(data) ? data : []);
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filterTags]);
+
+  const handleInputChange = (v: string) => {
+    setQuery(v);
+    onChange(v);
+    setOpen(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(v), 300);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        type="text"
+        value={value || query}
+        onChange={(e) => handleInputChange(e.target.value)}
+        onFocus={() => { setQuery(value); setOpen(true); }}
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+        placeholder={placeholder}
+      />
+      {open && (loading || suggestions.length > 0 || query.length >= 2) && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          {loading && (
+            <div className="px-3 py-2 text-xs text-gray-400">Searching...</div>
+          )}
+          {!loading && suggestions.length === 0 && query.length >= 2 && (
+            <div className="px-3 py-2 text-xs text-gray-400">No results</div>
+          )}
+          {suggestions.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                onChange(s.id);
+                setQuery('');
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-primary-50 transition-colors border-b border-gray-50 last:border-0"
+            >
+              <span className="text-gray-900 block truncate">{s.id}</span>
+              <span className="text-gray-400">
+                {s.pipeline_tag || 'model'}
+                {s.downloads != null && ` · ${(s.downloads / 1000).toFixed(0)}k downloads`}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Settings() {
@@ -172,12 +272,12 @@ export default function Settings() {
         <h3 className={sectionTitle}>Text Embedding Model</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Model Name</label>
-            <input
-              type="text"
+            <label className={labelClass}>Model Name (HuggingFace)</label>
+            <HFModelAutocomplete
               value={settings.model_settings.text_embedding.model_name}
-              onChange={(e) => updateModel('text_embedding', { model_name: e.target.value })}
-              className={inputClass}
+              onChange={(v) => updateModel('text_embedding', { model_name: v })}
+              placeholder="sentence-transformers/all-MiniLM-L6-v2"
+              filterTags={['sentence-similarity', 'feature-extraction']}
             />
           </div>
           <div className="flex items-end">
@@ -198,13 +298,12 @@ export default function Settings() {
         <h3 className={sectionTitle}>Vision Embedding Model</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Model Name</label>
-            <input
-              type="text"
+            <label className={labelClass}>Model Name (HuggingFace)</label>
+            <HFModelAutocomplete
               value={settings.model_settings.vision_embedding.model_name}
-              onChange={(e) => updateModel('vision_embedding', { model_name: e.target.value })}
-              className={inputClass}
+              onChange={(v) => updateModel('vision_embedding', { model_name: v })}
               placeholder="Leave empty to disable"
+              filterTags={['image-to-text', 'image-text-to-text']}
             />
           </div>
           <div className="flex items-end">
@@ -225,13 +324,12 @@ export default function Settings() {
         <h3 className={sectionTitle}>Multimodal Embedding Model</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
           <div>
-            <label className={labelClass}>Model Name</label>
-            <input
-              type="text"
+            <label className={labelClass}>Model Name (HuggingFace)</label>
+            <HFModelAutocomplete
               value={settings.model_settings.multimodal_embedding.model_name}
-              onChange={(e) => updateModel('multimodal_embedding', { model_name: e.target.value })}
-              className={inputClass}
+              onChange={(v) => updateModel('multimodal_embedding', { model_name: v })}
               placeholder="e.g. clip-ViT-B-32"
+              filterTags={['image-to-text', 'sentence-similarity', 'zero-shot-image-classification']}
             />
           </div>
           <div className="flex items-end">
@@ -262,11 +360,11 @@ export default function Settings() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
           <div>
             <label className={labelClass}>Model Name</label>
-            <input
-              type="text"
+            <HFModelAutocomplete
               value={settings.model_settings.query_llm.model_name}
-              onChange={(e) => updateQueryLlm({ model_name: e.target.value })}
-              className={inputClass}
+              onChange={(v) => updateQueryLlm({ model_name: v })}
+              placeholder="e.g. meta-llama/Llama-3.2-3B"
+              filterTags={['text-generation']}
             />
           </div>
           <div className="flex items-end">
@@ -310,12 +408,11 @@ export default function Settings() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>Model Name (CrossEncoder)</label>
-            <input
-              type="text"
+            <HFModelAutocomplete
               value={settings.model_settings.rerank.model_name}
-              onChange={(e) => updateRerank({ model_name: e.target.value })}
-              className={inputClass}
+              onChange={(v) => updateRerank({ model_name: v })}
               placeholder="e.g. cross-encoder/ms-marco-MiniLM-L-6-v2"
+              filterTags={['feature-extraction', 'sentence-similarity']}
             />
           </div>
           <div className="flex items-end">

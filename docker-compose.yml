@@ -1,8 +1,23 @@
-version: "3.8"
 # Used by Coolify Docker Compose deployment
-# Only the rag-api service exposes port 8000, serving both the FastAPI backend and the built React frontend
+# Only the rag-api service exposes port 8855, serving both the FastAPI backend and the built React frontend
 
 services:
+  cloudflared:
+    container_name: cloudflare-tunnel
+    image: 'cloudflare/cloudflared:latest'
+    restart: unless-stopped
+    network_mode: host
+    command: 'tunnel --no-autoupdate run'
+    environment:
+      - 'TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}'
+    healthcheck:
+      test:
+        - CMD
+        - cloudflared
+        - '--version'
+      interval: 5s
+      timeout: 20s
+      retries: 10
   # PostgreSQL with pgvector
   postgres:
     image: pgvector/pgvector:pg17
@@ -39,13 +54,15 @@ services:
     container_name: rag-api
     restart: unless-stopped
     ports:
-      - "8855:8000"
+      - "8855:8855"
     environment:
       - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-ragadmin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
       - ORIGINS=${ORIGINS:-*}
     depends_on:
       postgres:
