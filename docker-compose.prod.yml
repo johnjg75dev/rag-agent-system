@@ -1,0 +1,78 @@
+services:
+  # PostgreSQL with pgvector
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ragdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d ragdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery
+  redis:
+    image: redis:7.4-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RAG Agent System API + Frontend
+  rag-api:
+    build: .
+    container_name: rag-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ORIGINS=${ORIGINS:-*}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - models_data:/app/models
+      - uploads_data:/app/uploads
+
+  # Celery Worker
+  rag-worker:
+    build: .
+    container_name: rag-worker
+    restart: unless-stopped
+    command: celery -A backend.workers.celery_app worker --loglevel=info
+    environment:
+      - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - rag-api
+      - postgres
+      - redis
+    volumes:
+      - models_data:/app/models
+      - uploads_data:/app/uploads
+
+volumes:
+  postgres_data:
+  redis_data:
+  models_data:
+  uploads_data:

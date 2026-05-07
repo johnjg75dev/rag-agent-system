@@ -1,0 +1,75 @@
+services:
+  # PostgreSQL with pgvector
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rag-postgres
+    environment:
+      POSTGRES_DB: ragdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d ragdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery
+  redis:
+    image: redis:7.4-alpine
+    container_name: rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RAG Agent System API + Frontend
+  rag-api:
+    build: .
+    container_name: rag-api
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models
+      - ./uploads:/app/uploads
+
+  # Celery Worker
+  rag-worker:
+    build: .
+    container_name: rag-worker
+    command: celery -A backend.workers.celery_app worker --loglevel=info
+    environment:
+      - POSTGRES_URL=postgresql://user:${POSTGRES_PASSWORD:-password}@postgres:5432/ragdb
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - rag-api
+      - postgres
+      - redis
+    volumes:
+      - ./models:/app/models
+      - ./uploads:/app/uploads
+
+volumes:
+  postgres_data:
+  redis_data:

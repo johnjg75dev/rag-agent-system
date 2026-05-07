@@ -1,0 +1,47 @@
+# Build
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Python
+__pycache__/
+*.py[cod]
+*$pypy/
+*.so
+.Python
+.env
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+rag_app.db
+models/
+uploads/
+chroma_db/
