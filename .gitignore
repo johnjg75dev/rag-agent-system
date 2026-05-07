@@ -44,4 +44,5 @@ Thumbs.db
 rag_app.db
 models/
 uploads/
-chroma_db/
+MIGRATION.md
+INSTALL.MD
